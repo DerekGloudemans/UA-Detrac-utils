@@ -9,8 +9,6 @@ Provides:
 It is assumed that image dir is a directory containing a subdirectory for each track
 Label dir is a directory containing a bunch of label files
 """
-label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
-image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
 
 import os
 import time
@@ -23,7 +21,10 @@ from PIL import Image
 from torch.utils import data
 import matplotlib.pyplot as plt
 
-from detrac_plot_utils import pil_to_cv
+import xml.etree.ElementTree as ET
+
+
+from detrac_plot_utils import pil_to_cv, plot_bboxes_2d, plot_text
 
 class Track_Dataset(data.Dataset):
     """
@@ -51,7 +52,7 @@ class Track_Dataset(data.Dataset):
 
             images = [os.path.join(track_list[i],frame) for frame in os.listdir(track_list[i])]
             images.sort() 
-            labels = self.parse_labels(label_list[i])
+            labels,metadata = self.parse_labels(label_list[i])
             
             for j in range(len(images)):
                 out_dict = {
@@ -121,15 +122,48 @@ class Track_Dataset(data.Dataset):
         cur = self.all_data[index]
         im = Image.open(cur['image'])
         label = cur['label']
-        frame_num_of_track = cur['frame_num_of_track']
-        track_num = cur['track_num']
         
         return im, label
     
-    def parse_labels(self,label):
-        return [0 for i in range(0,10000)]
+    def parse_labels(self,label_file):
+        tree = ET.parse(label_file)
+        root = tree.getroot()
+        
+        # get sequence attributes
+        seq_name = root.attrib['name']
+        
+        # get list of all frame elements
+        frames = root.getchildren()
+        
+        # first child is sequence attributes
+        seq_attrs = frames[0].attrib
+        
+        # second child is ignored regions
+        ignored_regions = []
+        for region in frames[1]:
+            ignored_regions.append(region.attrib)
+        frames = frames[2:]
+        
+        # rest are bboxes
+        all_boxes = []
+        for frame in frames:
+            frame_boxes = []
+            boxids = frame.getchildren()[0].getchildren()
+            for boxid in boxids:
+                data = boxid.getchildren()
+                coords = data[0].attrib
+                stats = data[1].attrib
+                
+                frame_boxes.append([coords,stats])
+            all_boxes.append(frame_boxes)
+        
+        sequence_metadata = {
+                'sequence':seq_name,
+                'seq_attributes':seq_attrs,
+                }
+        return all_boxes, sequence_metadata
     
-    def plot(self,track_idx,show_labels = False):
+    def plot(self,track_idx,SHOW_LABELS = False):
         """ plots all frames in track_idx as video"""
 
         self.load_track(track_idx)
@@ -137,8 +171,11 @@ class Track_Dataset(data.Dataset):
         
         while True:
             
-            print("Frame num {}, Track len {}".format(frame_num, track_len))
             cv_im = pil_to_cv(im)
+            
+            if SHOW_LABELS:
+                plot_bboxes_2d(im,label)
+                
             
             cv2.imshow("Frame",cv_im)
             key = cv2.waitKey(1) & 0xff
@@ -153,3 +190,20 @@ class Track_Dataset(data.Dataset):
                 break
     
         cv2.destroyAllWindows()
+        
+
+label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
+image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
+test = Track_Dataset(image_dir,label_dir)
+label_file = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3\\MVI_20011_v3.xml"
+
+
+
+
+#    item = next(iter(root))
+#    print(item.attrib)
+#    print(item.keys())
+#    print(item.tag)
+#    print(item.text)
+#    print(item.tail)
+  
