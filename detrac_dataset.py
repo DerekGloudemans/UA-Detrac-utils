@@ -190,7 +190,7 @@ class Track_Dataset(data.Dataset):
                 }
         return all_boxes, sequence_metadata
     
-    def plot(self,track_idx,SHOW_LABELS = False):
+    def plot(self,track_idx,SHOW_LABELS = True):
         """ plots all frames in track_idx as video"""
 
         self.load_track(track_idx)
@@ -201,7 +201,7 @@ class Track_Dataset(data.Dataset):
             cv_im = pil_to_cv(im)
             
             if SHOW_LABELS:
-                plot_bboxes_2d(im,label)
+                cv_im = plot_bboxes_2d(cv_im,label,metadata['ignored_regions'])
                 
             
             cv2.imshow("Frame",cv_im)
@@ -223,7 +223,7 @@ label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-
 image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
 test = Track_Dataset(image_dir,label_dir)
 #label_file = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3\\MVI_20011_v3.xml"
-test.plot(1)
+test.plot(0)
 
 
 
