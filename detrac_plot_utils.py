@@ -13,9 +13,15 @@ def pil_to_cv(pil_im):
     return open_cv_image[:, :, ::-1] 
 
 
-def plot_text(im,offset,cls,idnum,class_colors):
+def plot_text(im,offset,cls,idnum,class_colors,class_dict):
     """ Plots filled text box on original image, 
-        utility function for plot_bboxes_2d """
+        utility function for plot_bboxes_2
+        im - cv2 image
+        offset - to upper left corner of bbox above which text is to be plotted
+        cls - string
+        class_colors - list of 3 tuples of ints in range (0,255)
+        class_dict - dictionary that converts class strings to ints and vice versa
+    """
     
     text = "{}: {}".format(idnum,cls)
     
@@ -23,7 +29,7 @@ def plot_text(im,offset,cls,idnum,class_colors):
     font = cv2.FONT_HERSHEY_PLAIN
     
     # set the rectangle background to white
-    rectangle_bgr = class_colors[cls]
+    rectangle_bgr = class_colors[class_dict[cls]]
     
     # get the width and height of the text box
     (text_width, text_height) = cv2.getTextSize(text, font, fontScale=font_scale, thickness=1)[0]
@@ -37,7 +43,7 @@ def plot_text(im,offset,cls,idnum,class_colors):
     cv2.putText(im, text, (text_offset_x, text_offset_y), font, fontScale=font_scale, color=(0, 0, 0), thickness=1)
 
 
-def plot_bboxes_2d(im,label):
+def plot_bboxes_2d(im,label,ignored_regions = []):
     """ Plots rectangular bboxes on image and returns image
     im - cv2 or PIL style image (function converts to cv2 style image)
     label - for one frame, in the form output by parse_label_file 
@@ -45,8 +51,10 @@ def plot_bboxes_2d(im,label):
     """
     
     # check type and convert PIL im to cv2 im if necessary
-    assert type(im) in [np.ndarray, PIL.PngImagePlugin.PngImageFile], "Invalid image format"
-    if type(im) == PIL.PngImagePlugin.PngImageFile:
+    assert type(im) in [np.ndarray, 
+                       PIL.PngImagePlugin.PngImageFile,
+                       PIL.JpegImagePlugin.JpegImageFile], "Invalid image format"
+    if type(im) != np.ndarray:
         im = pil_to_cv(im)
     cv_im = im.copy() 
     
@@ -63,15 +71,19 @@ def plot_bboxes_2d(im,label):
             ]
     
     for det in label:
-        bbox = det['bbox2d']
+        bbox = det['bbox'].astype(int)
         cls = det['class']
         idnum = det['id']
         
-        cv2.rectangle(cv_im,(bbox[0],bbox[1]),(bbox[2],bbox[3]), class_colors[cls], 1)
-        if cls != 'DontCare':
-            plot_text(cv_im,(bbox[0],bbox[1]),cls,idnum,class_colors)
+        cv2.rectangle(cv_im,(bbox[0],bbox[1]),(bbox[2],bbox[3]), class_colors[class_dict[cls]], 1)
+        plot_text(cv_im,(bbox[0],bbox[1]),cls,idnum,class_colors,class_dict)
+        
+    for region in ignored_regions:
+        bbox = region.astype(int)
+        cv2.rectangle(cv_im,(bbox[0],bbox[1]),(bbox[2],bbox[3]), class_colors[-1], 1)
     return cv_im
 
+# for conversion of UA Detrac class labels
 class_dict = {
         'Sedan':0,
         'Hatchback':1,
