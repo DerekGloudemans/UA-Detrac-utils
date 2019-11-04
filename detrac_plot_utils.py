@@ -15,7 +15,13 @@ def pil_to_cv(pil_im):
 
 def plot_text(im,offset,cls,idnum,class_colors,class_dict):
     """ Plots filled text box on original image, 
-        utility function for plot_bboxes_2d """
+        utility function for plot_bboxes_2
+        im - cv2 image
+        offset - to upper left corner of bbox above which text is to be plotted
+        cls - string
+        class_colors - list of 3 tuples of ints in range (0,255)
+        class_dict - dictionary that converts class strings to ints and vice versa
+    """
     
     text = "{}: {}".format(idnum,cls)
     
@@ -77,6 +83,7 @@ def plot_bboxes_2d(im,label,ignored_regions = []):
         cv2.rectangle(cv_im,(bbox[0],bbox[1]),(bbox[2],bbox[3]), class_colors[-1], 1)
     return cv_im
 
+# for conversion of UA Detrac class labels
 class_dict = {
         'Sedan':0,
         'Hatchback':1,

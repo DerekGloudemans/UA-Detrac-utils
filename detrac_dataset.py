@@ -2,29 +2,23 @@
 This file provides a dataset class for working with the UA-detrac tracking dataset.
 Provides:
     - plotting of 2D bounding boxes
-    - transforms for training
-    - training/testing loader mode (random images from across all tracks)
-    - track mode - returns a single image, in order
+    - training/testing loader mode (random images from across all tracks) using __getitem__()
+    - track mode - returns a single image, in order, using __next__()
     
-It is assumed that image dir is a directory containing a subdirectory for each track
+It is assumed that image dir is a directory containing a subdirectory for each track sequence
 Label dir is a directory containing a bunch of label files
 """
 
 import os
-import time
 import numpy as np
 
-import torch
 import cv2
-import PIL
 from PIL import Image
 from torch.utils import data
-import matplotlib.pyplot as plt
-
 import xml.etree.ElementTree as ET
 
 
-from detrac_plot_utils import pil_to_cv, plot_bboxes_2d, plot_text, class_dict
+from detrac_plot_utils import pil_to_cv, plot_bboxes_2d
 
 class Track_Dataset(data.Dataset):
     """
@@ -67,8 +61,8 @@ class Track_Dataset(data.Dataset):
                 self.all_data.append(out_dict)
             
             # index of first frame
-            if i > 0:
-                self.track_offsets.append(len(images)+self.track_offsets[i-1])
+            if i < len(track_list) - 1:
+                self.track_offsets.append(len(images)+self.track_offsets[i])
             
         # for keeping track of things
         self.cur_track =  None # int
@@ -85,7 +79,7 @@ class Track_Dataset(data.Dataset):
         
         
     def load_track(self,idx):
-        """moves to track indexed"""
+        """moves to track indexed by idx (int)."""
         try:
             if idx >= self.num_tracks or idx < 0:
                 raise Exception
@@ -101,8 +95,7 @@ class Track_Dataset(data.Dataset):
         return self.num_tracks
     
     def __next__(self):
-        """get next frame and label from current track"""
-        
+        """get next frame label, and a bit of other info from current track"""
                 
         self.cur_frame = self.cur_frame + 1
         cur = self.all_data[self.cur_frame]
@@ -117,7 +110,7 @@ class Track_Dataset(data.Dataset):
 
 
     def __len__(self):
-        """ returns total number frames in all tracks"""
+        """ returns total number of frames in all tracks"""
         return self.total_num_frames
     
     def __getitem__(self,index):
@@ -131,9 +124,8 @@ class Track_Dataset(data.Dataset):
     def parse_labels(self,label_file):
         """
         Returns a set of metadata (1 per track) and a list of labels (1 item per
-        frame, where an item is a list of sublists (one sublist per detection))
-        and the two items of the sublist are a dictionary of box locations and a
-        dictionary of object attributes (class, truncation ratio, orientation, etc.)
+        frame, where an item is a list of dictionaries (one dictionary per object
+        with fields id, class, truncation, orientation, and bbox
         """
         tree = ET.parse(label_file)
         root = tree.getroot()
@@ -191,19 +183,20 @@ class Track_Dataset(data.Dataset):
         return all_boxes, sequence_metadata
     
     def plot(self,track_idx,SHOW_LABELS = True):
-        """ plots all frames in track_idx as video"""
+        """ plots all frames in track_idx as video
+            SHOW_LABELS - if True, labels are plotted on sequence
+            track_idx - int    
+        """
 
         self.load_track(track_idx)
         im,label,frame_num,track_len,track_num,metadata = next(self)
         
         while True:
-            
             cv_im = pil_to_cv(im)
             
             if SHOW_LABELS:
                 cv_im = plot_bboxes_2d(cv_im,label,metadata['ignored_regions'])
                 
-            
             cv2.imshow("Frame",cv_im)
             key = cv2.waitKey(1) & 0xff
             #time.sleep(1/30.0)
@@ -219,18 +212,10 @@ class Track_Dataset(data.Dataset):
         cv2.destroyAllWindows()
         
 
+
+#### Test script here
 label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
 image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
 test = Track_Dataset(image_dir,label_dir)
-#label_file = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3\\MVI_20011_v3.xml"
-test.plot(0)
+test.plot(1)
 
-
-
-#    item = next(iter(root))
-#    print(item.attrib)
-#    print(item.keys())
-#    print(item.tag)
-#    print(item.text)
-#    print(item.tail)
-  
