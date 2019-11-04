@@ -50,16 +50,17 @@ def plot_bboxes_2d(im,label):
         im = pil_to_cv(im)
     cv_im = im.copy() 
     
-    class_colors = {
-            'Cyclist': (255,150,0),
-            'Pedestrian':(255,100,0),
-            'Person':(255,50,0),
-            'Car': (0,255,150),
-            'Van': (0,255,100),
-            'Truck': (0,255,50),
-            'Tram': (0,100,255),
-            'Misc': (0,50,255),
-            'DontCare': (200,200,200)}
+    class_colors = [
+            (255,150,0),
+            (255,100,0),
+            (255,50,0),
+            (0,255,150),
+            (0,255,100),
+            (0,255,50),
+            (0,100,255),
+            (0,50,255),
+            (200,200,200) #ignored regions
+            ]
     
     for det in label:
         bbox = det['bbox2d']
@@ -71,4 +72,22 @@ def plot_bboxes_2d(im,label):
             plot_text(cv_im,(bbox[0],bbox[1]),cls,idnum,class_colors)
     return cv_im
 
-
+class_dict = {
+        'Sedan':0,
+        'Hatchback':1,
+        'Suv':2,
+        'Van':3,
+        'Police':4,
+        'Taxi':5,
+        'Bus':6,
+        'Truck-Box-Large':7,
+        
+        0:'Sedan',
+        1:'Hatchback',
+        2:'Suv',
+        3:'Van',
+        4:'Police',
+        5:'Taxi',
+        6:'Bus',
+        7:'Truck-Box-Large'     
+        }

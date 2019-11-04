@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
 
 
-from detrac_plot_utils import pil_to_cv, plot_bboxes_2d, plot_text
+from detrac_plot_utils import pil_to_cv, plot_bboxes_2d, plot_text, class_dict
 
 class Track_Dataset(data.Dataset):
     """
@@ -43,6 +43,7 @@ class Track_Dataset(data.Dataset):
         label_list.sort()
         
         self.track_offsets = [0]
+        self.track_metadata = []
         self.all_data = []
         
         # parse and store all labels and image names in a list such that
@@ -53,6 +54,7 @@ class Track_Dataset(data.Dataset):
             images = [os.path.join(track_list[i],frame) for frame in os.listdir(track_list[i])]
             images.sort() 
             labels,metadata = self.parse_labels(label_list[i])
+            self.track_metadata.append(metadata)
             
             for j in range(len(images)):
                 out_dict = {
@@ -109,8 +111,9 @@ class Track_Dataset(data.Dataset):
         track_len = cur['track_len']
         frame_num_of_track = cur['frame_num_of_track']
         track_num = cur['track_num']
+        metadata = self.track_metadata[track_num]
         
-        return im, label, frame_num_of_track, track_len, track_num
+        return im, label, frame_num_of_track, track_len, track_num, metadata
 
 
     def __len__(self):
@@ -122,10 +125,16 @@ class Track_Dataset(data.Dataset):
         cur = self.all_data[index]
         im = Image.open(cur['image'])
         label = cur['label']
-        
+
         return im, label
     
     def parse_labels(self,label_file):
+        """
+        Returns a set of metadata (1 per track) and a list of labels (1 item per
+        frame, where an item is a list of sublists (one sublist per detection))
+        and the two items of the sublist are a dictionary of box locations and a
+        dictionary of object attributes (class, truncation ratio, orientation, etc.)
+        """
         tree = ET.parse(label_file)
         root = tree.getroot()
         
@@ -141,7 +150,12 @@ class Track_Dataset(data.Dataset):
         # second child is ignored regions
         ignored_regions = []
         for region in frames[1]:
-            ignored_regions.append(region.attrib)
+            coords = region.attrib
+            box = np.array([float(coords['left']),
+                            float(coords['top']),
+                            float(coords['left']) + float(coords['width']),
+                            float(coords['top'])  + float(coords['height'])])
+            ignored_regions.append(box)
         frames = frames[2:]
         
         # rest are bboxes
@@ -153,13 +167,26 @@ class Track_Dataset(data.Dataset):
                 data = boxid.getchildren()
                 coords = data[0].attrib
                 stats = data[1].attrib
+                bbox = np.array([float(coords['left']),
+                                float(coords['top']),
+                                float(coords['left']) + float(coords['width']),
+                                float(coords['top'])  + float(coords['height'])])
+                det_dict = {
+                        'id':int(boxid.attrib['id']),
+                        'class':stats['vehicle_type'],
+                        'color':stats['color'],
+                        'orientation':float(stats['orientation']),
+                        'truncation':float(stats['truncation_ratio']),
+                        'bbox':bbox
+                        }
                 
-                frame_boxes.append([coords,stats])
+                frame_boxes.append(det_dict)
             all_boxes.append(frame_boxes)
         
         sequence_metadata = {
                 'sequence':seq_name,
                 'seq_attributes':seq_attrs,
+                'ignored_regions':ignored_regions
                 }
         return all_boxes, sequence_metadata
     
@@ -167,7 +194,7 @@ class Track_Dataset(data.Dataset):
         """ plots all frames in track_idx as video"""
 
         self.load_track(track_idx)
-        im,label,frame_num,track_len,_ = next(self)
+        im,label,frame_num,track_len,track_num,metadata = next(self)
         
         while True:
             
@@ -185,8 +212,8 @@ class Track_Dataset(data.Dataset):
                 break
             
             # load next frame
-            im,label,frame_num,track_len,_ = next(self)
-            if frame_num == 0:
+            im,label,frame_num,track_len,track_num,metadata = next(self)
+            if frame_num == track_len - 1:
                 break
     
         cv2.destroyAllWindows()
@@ -195,8 +222,8 @@ class Track_Dataset(data.Dataset):
 label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
 image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
 test = Track_Dataset(image_dir,label_dir)
-label_file = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3\\MVI_20011_v3.xml"
-
+#label_file = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3\\MVI_20011_v3.xml"
+test.plot(1)
 
 
 
