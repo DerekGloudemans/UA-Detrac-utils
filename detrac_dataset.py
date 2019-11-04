@@ -4,13 +4,12 @@ Provides:
     - plotting of 2D bounding boxes
     - training/testing loader mode (random images from across all tracks) using __getitem__()
     - track mode - returns a single image, in order, using __next__()
-    
-It is assumed that image dir is a directory containing a subdirectory for each track sequence
-Label dir is a directory containing a bunch of label files
 """
 
 import os
 import numpy as np
+import random 
+random.seed = 0
 
 import cv2
 from PIL import Image
@@ -26,11 +25,18 @@ from detrac_plot_utils import pil_to_cv, plot_bboxes_2d
 class Track_Dataset(data.Dataset):
     """
     Creates an object for referencing the UA-Detrac 2D object tracking dataset
+    Note that __getitem__ based indexing keeps data separated into testing and training
+    sets whereas __next__ based retreival does not, so the latter should only 
+    be used for plotting sequences
     """
     
-    def __init__(self, image_dir, label_dir):
+    def __init__(self, image_dir, label_dir, mode = "training"):
         """ initializes object. By default, the first track (cur_track = 0) is loaded 
-        such that next(object) will pull next frame from the first track"""
+        such that next(object) will pull next frame from the first track
+        image dir - (string) - a directory containing a subdirectory for each track sequence
+        label dir - (string) - a directory containing a label file per sequence
+        mode - (string) - training or testing
+        """
 
         # stores files for each set of images and each label
         dir_list = next(os.walk(image_dir))[1]
@@ -40,6 +46,8 @@ class Track_Dataset(data.Dataset):
         label_list.sort()
         
         self.im_tf = transforms.ToTensor()
+        
+        # for storing data
         self.track_offsets = [0]
         self.track_metadata = []
         self.all_data = []
@@ -68,7 +76,7 @@ class Track_Dataset(data.Dataset):
             if i < len(track_list) - 1:
                 self.track_offsets.append(len(images)+self.track_offsets[i])
             
-        # for keeping track of things
+        # for keeping frames and track sequences
         self.cur_track =  None # int
         self.cur_frame = None
         self.num_tracks = len(track_list)
@@ -77,6 +85,14 @@ class Track_Dataset(data.Dataset):
         # in case it is later important which files are which
         self.track_list = track_list
         self.label_list = label_list
+        
+        # for separating training 80% and testing 20% data
+        self.mode = mode
+        idxs = [i for i in range(len(self.all_data))]
+        random.shuffle(idxs)
+        cutoff = int(len(self.all_data)*0.8)
+        self.train_idxs = idxs[:cutoff]
+        self.test_idxs = idxs[cutoff:]
         
         # load track 0
         self.load_track(0)
@@ -115,11 +131,23 @@ class Track_Dataset(data.Dataset):
 
     def __len__(self):
         """ returns total number of frames in all tracks"""
-        return self.total_num_frames
+        if self.mode == "training":
+            return len(self.train_idxs)
+        else:
+            return len(self.test_idxs)
+       # return self.total_num_frames
     
     def __getitem__(self,index):
-        """ returns item indexed from all frames in all tracks"""
-        cur = self.all_data[index]
+        """ returns item indexed from all frames in all tracks from training
+        or testing indices depending on mode
+        """
+        
+        if self.mode == "training":
+            true_idx = self.train_idxs[index]
+        else:
+            true_idx = self.test_idxs[index]
+            
+        cur = self.all_data[true_idx]
         im = Image.open(cur['image'])
         label = cur['label']
         
@@ -248,11 +276,11 @@ class Track_Dataset(data.Dataset):
         cv2.destroyAllWindows()
         
 
-
-#### Test script here
-label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
-image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
-test = Track_Dataset(image_dir,label_dir)
-test.plot(0)
-temp = test[0]
+if __name__ == "__main__":
+    #### Test script here
+    label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
+    image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
+    test = Track_Dataset(image_dir,label_dir)
+    test.plot(0)
+    temp = test[0]
 
