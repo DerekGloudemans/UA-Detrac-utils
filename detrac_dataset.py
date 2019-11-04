@@ -14,7 +14,10 @@ import numpy as np
 
 import cv2
 from PIL import Image
+import torch
 from torch.utils import data
+from torchvision import transforms
+
 import xml.etree.ElementTree as ET
 
 
@@ -36,6 +39,7 @@ class Track_Dataset(data.Dataset):
         track_list.sort()
         label_list.sort()
         
+        self.im_tf = transforms.ToTensor()
         self.track_offsets = [0]
         self.track_metadata = []
         self.all_data = []
@@ -118,7 +122,25 @@ class Track_Dataset(data.Dataset):
         cur = self.all_data[index]
         im = Image.open(cur['image'])
         label = cur['label']
-
+        
+        # convert image and label to tensors
+        im = self.im_tf(im)
+        all_bboxes = []
+        all_cls = []
+        for item in label:
+            all_bboxes.append( torch.from_numpy(item['bbox']).float() )
+            val = item['class_num']
+            all_cls.append(  torch.tensor(val).long() )
+        
+        all_bboxes = torch.stack(all_bboxes,dim = 0)
+        all_cls = torch.stack(all_cls)
+        
+        label = {
+                'boxes': all_bboxes,
+                'labels':all_cls
+                }
+        
+        
         return im, label
     
     def parse_labels(self,label_file):
@@ -127,6 +149,19 @@ class Track_Dataset(data.Dataset):
         frame, where an item is a list of dictionaries (one dictionary per object
         with fields id, class, truncation, orientation, and bbox
         """
+        
+        class_dict = {
+        'Sedan':0,
+        'Hatchback':1,
+        'Suv':2,
+        'Van':3,
+        'Police':4,
+        'Taxi':5,
+        'Bus':6,
+        'Truck-Box-Large':7
+        }
+        
+        
         tree = ET.parse(label_file)
         root = tree.getroot()
         
@@ -166,6 +201,7 @@ class Track_Dataset(data.Dataset):
                 det_dict = {
                         'id':int(boxid.attrib['id']),
                         'class':stats['vehicle_type'],
+                        'class_num':class_dict[stats['vehicle_type']],
                         'color':stats['color'],
                         'orientation':float(stats['orientation']),
                         'truncation':float(stats['truncation_ratio']),
@@ -217,5 +253,6 @@ class Track_Dataset(data.Dataset):
 label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
 image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
 test = Track_Dataset(image_dir,label_dir)
-test.plot(1)
+test.plot(0)
+temp = test[0]
 
