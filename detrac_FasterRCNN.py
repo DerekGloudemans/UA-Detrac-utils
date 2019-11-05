@@ -61,17 +61,20 @@ def train_model(model, optimizer, scheduler,
             print('Epoch {}/{}'.format(epoch+1, num_epochs))
             print('-' * 10)
     
+            running_loss = 0
             # Each epoch has a training and validation phase
             for phase in ['train', 'val']:
                 if phase == 'train':
                     if epoch > 0:
                         scheduler.step()
                     model.train()  # Set model to training mode
-                else:
-                    model.eval()   # Set model to evaluate mode
+#                else:
+#                    model.eval()   # Set model to evaluate mode
     
                 # Iterate over data.
                 count = 0
+                total_num_minibatches = dataset_sizes[phase] / dataloaders[phase].batch_size
+                
                 for inputs, labels in dataloaders[phase]:
                     inputs = inputs.to(device)
                     device_labels = []
@@ -96,15 +99,33 @@ def train_model(model, optimizer, scheduler,
                                 losses['loss_objectness'].backward(retain_graph = True)
                                 losses['loss_rpn_box_reg'].backward(retain_graph = False)
                             optimizer.step()
+                            
+                   
+                    loss_vals = [losses[tag].item() for tag in losses]
+                    total_loss = sum(loss_vals)
+                    running_loss += total_loss
         
                     # verbose update
                     count += 1
-                    if count % 20 == 0:
-                        outstrings = ["{}:{}".format(item,losses[item]) for item in losses]
-                        #print("on minibatch {} -- correct: {} -- avg bbox iou: {} ".format(count,correct,bbox_acc))
-                        print(outstrings)
-                
+                    if count % 50 == 0:
+                        print("{:.4f} - Minibatch {} of {}".format(total_loss,count,total_num_minibatches))
+                        print("      cls:{:.4f} reg:{:.4f}  obj:{:.4f} rpn:{:.4f}"\
+                              .format(loss_vals[0],loss_vals[1],loss_vals[2],loss_vals[3]))
                 torch.cuda.empty_cache()
+                
+                
+                # get epoch statistics
+                running_loss = running_loss / dataset_sizes[phase]
+                print("Epoch {} {} phase complete. Avg loss: {}".format(epoch,phase,running_loss))
+                
+                # save checkpoint
+                PATH = "faster_rcnn_detract_epoch_{}.pt".format(epoch)
+                torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': running_loss
+                }, PATH)
                 
         return model
 
