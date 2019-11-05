@@ -74,14 +74,18 @@ def train_model(model, optimizer, scheduler,
                 count = 0
                 for inputs, labels in dataloaders[phase]:
                     inputs = inputs.to(device)
-
+                    device_labels = []
+                    for label in labels:
+                        label['boxes'] = label['boxes'].to(device)
+                        label['labels'] = label['labels'].to(device)
+                        device_labels.append(label)
                     # zero the parameter gradients
                     optimizer.zero_grad()
     
                     # forward
                     # track history if only in train
                     with torch.set_grad_enabled(phase == 'train'):
-                        losses = model(inputs,labels)
+                        losses = model(inputs,device_labels)
 
 
                         if phase == 'train' :
@@ -95,7 +99,7 @@ def train_model(model, optimizer, scheduler,
         
                     # verbose update
                     count += 1
-                    if count % 1 == 0:
+                    if count % 20 == 0:
                         outstrings = ["{}:{}".format(item,losses[item]) for item in losses]
                         #print("on minibatch {} -- correct: {} -- avg bbox iou: {} ".format(count,correct,bbox_acc))
                         print(outstrings)
@@ -119,7 +123,10 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()   
 
     #%% Create Model
-    model = models.detection.fasterrcnn_resnet50_fpn(pretrained_backbone = True,num_classes = 8)
+    try:
+        model
+    except:
+        model = models.detection.fasterrcnn_resnet50_fpn(pretrained_backbone = True,num_classes = 14)
     """
     The input to the model is expected to be a list of tensors, 
     each of shape [C, H, W], one for each image, and should be in 0-1 range. 
@@ -145,19 +152,28 @@ if __name__ == "__main__":
     """
 
     #%% Create dataloader and dataset
-    
-    label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
-    image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
-    train_dataset = Track_Dataset(image_dir,label_dir,mode = "training")
-    test_dataset = Track_Dataset(image_dir,label_dir,mode = "testing")
-    
-    # create training params
-    params = {'batch_size': 2,
-              'shuffle': True,
-              'num_workers': 0,
-              'collate_fn':collate_wrapper}
-    trainloader = data.DataLoader(train_dataset,**params)
-    testloader = data.DataLoader(test_dataset,**params)
+    try:
+        trainloader
+        testloader
+    except:
+        if False:
+            label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
+            image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
+        if True:
+            label_dir = "/media/worklab/data_HDD/cv_data/UA_Detrac/DETRAC-Train-Annotations-XML-v3"
+            image_dir = "/media/worklab/data_HDD/cv_data/UA_Detrac/DETRAC-train-data/Insight-MVT_Annotation_Train"
+        
+        print("Loading datasets")
+        train_dataset = Track_Dataset(image_dir,label_dir,mode = "training")
+        test_dataset = Track_Dataset(image_dir,label_dir,mode = "testing")
+        
+        # create training params
+        params = {'batch_size': 2,
+                  'shuffle': True,
+                  'num_workers': 0,
+                  'collate_fn':collate_wrapper}
+        trainloader = data.DataLoader(train_dataset,**params)
+        testloader = data.DataLoader(test_dataset,**params)
     
 #    start = time.time()
 #    X, Y = next(iter(trainloader))
@@ -169,11 +185,11 @@ if __name__ == "__main__":
 #    out = model(X,Y)
     
     
-    
-    
+    #%%
+    model = model.to(device)
     # all parameters are being optimized, not just fc layer
     #optimizer = optim.Adam(model.parameters(), lr=0.01)
-    optimizer = optim.SGD(model.parameters(), lr=0.01,momentum = 0.9)    
+    optimizer = optim.SGD(model.parameters(), lr=0.0001,momentum = 0.9)    
     # Decay LR by a factor of 0.5 every epoch
     exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.9)
     start_epoch = 0

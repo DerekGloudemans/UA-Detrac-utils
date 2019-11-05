@@ -29,7 +29,7 @@ def plot_text(im,offset,cls,idnum,class_colors,class_dict):
     font = cv2.FONT_HERSHEY_PLAIN
     
     # set the rectangle background to white
-    rectangle_bgr = class_colors[class_dict[cls]]
+    rectangle_bgr = class_colors[class_dict[cls]%8]
     
     # get the width and height of the text box
     (text_width, text_height) = cv2.getTextSize(text, font, fontScale=font_scale, thickness=1)[0]
@@ -75,7 +75,7 @@ def plot_bboxes_2d(im,label,ignored_regions = []):
         cls = det['class']
         idnum = det['id']
         
-        cv2.rectangle(cv_im,(bbox[0],bbox[1]),(bbox[2],bbox[3]), class_colors[class_dict[cls]], 1)
+        cv2.rectangle(cv_im,(bbox[0],bbox[1]),(bbox[2],bbox[3]), class_colors[class_dict[cls]%8], 1)
         plot_text(cv_im,(bbox[0],bbox[1]),cls,idnum,class_colors,class_dict)
         
     for region in ignored_regions:
@@ -93,6 +93,11 @@ class_dict = {
         'Taxi':5,
         'Bus':6,
         'Truck-Box-Large':7,
+        'MiniVan':8,
+        'Truck-Box-Med':9,
+        'Truck-Util':10,
+        'Truck-Pickup':11,
+        'Truck-Flatbed':12,
         
         0:'Sedan',
         1:'Hatchback',
@@ -101,5 +106,10 @@ class_dict = {
         4:'Police',
         5:'Taxi',
         6:'Bus',
-        7:'Truck-Box-Large'     
+        7:'Truck-Box-Large',
+        8:'MiniVan',
+        9:'Truck-Box-Med',
+        10:'Truck-Util',
+        11:'Truck-Pickup',
+        12:'Truck-Flatbed'
         }

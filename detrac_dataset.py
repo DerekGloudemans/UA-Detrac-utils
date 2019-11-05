@@ -62,7 +62,7 @@ class Track_Dataset(data.Dataset):
             labels,metadata = self.parse_labels(label_list[i])
             self.track_metadata.append(metadata)
             
-            for j in range(len(images)):
+            for j in range(len(labels)):
                 out_dict = {
                         'image':images[j],
                         'label':labels[j],
@@ -159,9 +159,12 @@ class Track_Dataset(data.Dataset):
             all_bboxes.append( torch.from_numpy(item['bbox']).float() )
             val = item['class_num']
             all_cls.append(  torch.tensor(val).long() )
-        
-        all_bboxes = torch.stack(all_bboxes,dim = 0)
-        all_cls = torch.stack(all_cls)
+        try:
+            all_bboxes = torch.stack(all_bboxes,dim = 0)
+            all_cls = torch.stack(all_cls)
+        except:
+            all_bboxes = torch.from_numpy(np.array([0,0,0,0])).float().unsqueeze(0)
+            all_cls = torch.tensor(13).long().unsqueeze(0)
         
         label = {
                 'boxes': all_bboxes,
@@ -186,7 +189,12 @@ class Track_Dataset(data.Dataset):
         'Police':4,
         'Taxi':5,
         'Bus':6,
-        'Truck-Box-Large':7
+        'Truck-Box-Large':7,
+        'MiniVan':8,
+        'Truck-Box-Med':9,
+        'Truck-Util':10,
+        'Truck-Pickup':11,
+        'Truck-Flatbed':12
         }
         
         
@@ -215,8 +223,15 @@ class Track_Dataset(data.Dataset):
         
         # rest are bboxes
         all_boxes = []
+        cur_frame = 1
         for frame in frames:
             frame_boxes = []
+            # only frames with detections are listed, so if there is a skip we need
+            # to add  frames with no detections
+            while int(frame.attrib['num']) > cur_frame:
+                all_boxes.append([])
+                cur_frame += 1
+            
             boxids = frame.getchildren()[0].getchildren()
             for boxid in boxids:
                 data = boxid.getchildren()
@@ -237,6 +252,7 @@ class Track_Dataset(data.Dataset):
                         }
                 
                 frame_boxes.append(det_dict)
+            cur_frame += 1
             all_boxes.append(frame_boxes)
         
         sequence_metadata = {
@@ -280,7 +296,11 @@ if __name__ == "__main__":
     #### Test script here
     label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
     image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
-    test = Track_Dataset(image_dir,label_dir)
-    test.plot(0)
-    temp = test[0]
+    label_dir = "/media/worklab/data_HDD/cv_data/UA_Detrac/DETRAC-Train-Annotations-XML-v3"
+    image_dir = "/media/worklab/data_HDD/cv_data/UA_Detrac/DETRAC-train-data/Insight-MVT_Annotation_Train"
+    test = Track_Dataset(image_dir,label_dir,mode = "training")
+    
+    for i in range(0,60):
+        test.plot(i)
+        temp = test[i]
 
