@@ -51,110 +51,171 @@ def collate_wrapper(batch):
     return ListBatch(batch).transposed_data
 
 def train_model(model, optimizer, scheduler, 
-                    dataloaders,dataset_sizes, num_epochs=5, start_epoch = 0):
+                    dataloaders,dataset_sizes, num_epochs=5, start_epoch = 0, alternation_step_size = 1000):
         """
-        Alternates between a training step and a validation step at each epoch. 
-        Validation results are reported but don't impact model weights
-        Trains RPN on even epochs, ROI heads on odd epochs
+        Faster RCNN training regime. A few major items of note:
+            - Since the dataset is large, epochs take a long time to compute.
+              Thus, a checkpoint is saved every epoch and one continuously rolling
+              best val loss checkpoint is also saved and updated
+            - Every 1000 minibatches, 200 validation set batches are evaluated
+              and if the loss for this test is lower than the previous best, the 
+              old best checkpoint is deleted and a new best checkpoint is saved
+            - Faster RCNN paper describes alternating between optimizing wrt
+              RPN losses and ROI head losses. This alternation is carried out every
+              1000 minibatches 
         """
-        best_loss = np.inf
+        
+        best_val_loss = np.inf 
+        best_val_checkpoint = None # will save string name of checkpoint file
+        
         for epoch in range(start_epoch,num_epochs):
             print('Epoch {}/{}'.format(epoch+1, num_epochs))
             print('-' * 10)
     
             running_loss = 0
             # Each epoch has a training and validation phase
-            for phase in ['train', 'val']:
-                if phase == 'train':
-                    if epoch > 0:
-                        scheduler.step()
-                    model.train()  # Set model to training mode
-#                else:
-#                    model.eval()   # Set model to evaluate mode
-    
-                # Iterate over data.
-                count = 0
-                total_num_minibatches = dataset_sizes[phase] / dataloaders[phase].batch_size
+            if epoch > 0:
+                scheduler.step()
                 
-                for inputs, labels in dataloaders[phase]:
-                    inputs = inputs.to(device)
-                    device_labels = []
-                    for label in labels:
-                        label['boxes'] = label['boxes'].to(device)
-                        label['labels'] = label['labels'].to(device)
-                        device_labels.append(label)
-                    # zero the parameter gradients
-                    optimizer.zero_grad()
+            # Set model to training mode
+            model.train()  
+
     
-                    # forward
-                    # track history if only in train
-                    with torch.set_grad_enabled(phase == 'train'):
-                        losses = model(inputs,device_labels)
+            # Iterate over data.
+            count = 0
+            total_num_minibatches = dataset_sizes["train"] / dataloaders["train"].batch_size
+            
+            for inputs, labels in dataloaders["train"]:
+                inputs = inputs.to(device)
+                device_labels = []
+                for label in labels:
+                    label['boxes'] = label['boxes'].to(device)
+                    label['labels'] = label['labels'].to(device)
+                    device_labels.append(label)
+                # zero the parameter gradients
+                optimizer.zero_grad()
+
+                # forward
+                # track history if only in train
+                with torch.set_grad_enabled(True):
+                    losses = model(inputs,device_labels)
 
 
-                        if phase == 'train' :
-                            # deal with nan and inf values
-                            bad_losses = []
-                            for item in losses:
-                                if torch.isnan(losses[item]) or losses[item] > 100:
-                                    bad_losses.append(item)
-                            for item in bad_losses:
-                                del losses[item]
-                                    
-#                            if count//500 % 2 == 1:#epoch %2 == 1: # switch every 500 batches
-#                                losses['loss_classifier'].backward(retain_graph = True)
-#                                losses['loss_box_reg'].backward(retain_graph = False)
-#                            else:
-#                                losses['loss_objectness'].backward(retain_graph = True)
-#                                losses['loss_rpn_box_reg'].backward(retain_graph = False)
-#                            optimizer.step()
-                            
-                        if phase == 'train' :
-                            for i,item in enumerate(losses):
-                                if i < len(losses)-1:
-                                    losses[item].backward(retain_graph = True)
-                                else:
-                                    losses[item].backward(retain_graph = False)
-                            optimizer.step()
-                            
-                   
+                    # deal with nan and inf values
+                    bad_losses = []
+                    for item in losses:
+                        if torch.isnan(losses[item]) or losses[item] > 100:
+                            bad_losses.append(item)
+                    for item in bad_losses:
+                        del losses[item]
+                        
+                    # get loss statistics    
                     loss_vals = [losses[tag].item() for tag in losses]
                     total_loss = sum(loss_vals)
                     running_loss += total_loss
-        
-                    # verbose update
-                    count += 1
-                    if count % 1 == 0:
-                        print("{:.4f} - Minibatch {} of {}".format(total_loss,count,total_num_minibatches))
-                        #print("      cls:{:.4f} reg:{:.4f}  obj:{:.4f} rpn:{:.4f}"\
-                        #      .format(loss_vals[0],loss_vals[1],loss_vals[2],loss_vals[3]))
-                        if count % 500 == 0 and running_loss/(count*dataloaders[phase].batch_size) < best_loss:
-                            print("New lowest loss, checkpoint saved.")
+                    loss_strings = [item + ":" + str(losses[item].item()) for item in losses]
+                    
+                    # remove ROI or RPN losses, respectively, depending on training alternatio state
+                    if count//alternation_step_size % 2 == 1:#epoch %2 == 1: # switch every 500 batches
+                        try:
+                            del losses['loss_classifier']
+                        except:
+                            pass
+                        try:
+                            del losses['loss_box_reg']
+                        except:
+                            pass
+                    else:
+                        try:
+                            del losses['loss_objectness']
+                        except:
+                            pass
+                        try:
+                            del losses['loss_rpn_box_reg']
+                        except:
+                            pass
+                    
+                    # backpropogate losses
+                    for i,item in enumerate(losses):
+                        if i < len(losses)-1:
+                            losses[item].backward(retain_graph = True)
+                        else:
+                            losses[item].backward(retain_graph = False)
+                    optimizer.step()
+                    
+                # verbose update
+                count += 1
+                if count % 50 == 0:
+                    print("{:.4f} - Minibatch {} of {}".format(total_loss,count,total_num_minibatches))
+                    print(loss_strings)                    
+
+                # perform validation check
+                if count % alternation_step_size == 0:
+                    for i in range(0,200):
+                        inputs, labels = next(iter(dataloaders['val']))
+                        inputs = inputs.to(device)
+                        
+                        device_labels = []
+                        for label in labels:
+                            label['boxes'] = label['boxes'].to(device)
+                            label['labels'] = label['labels'].to(device)
+                            device_labels.append(label)
+
+
+                        # forward
+                        # track history if only in train
+                        with torch.set_grad_enabled(False):
+                            losses = model(inputs,device_labels)
+
+
+                        # deal with nan and inf values
+                        bad_losses = []
+                        for item in losses:
+                            if torch.isnan(losses[item]) or losses[item] > 100:
+                                bad_losses.append(item)
+                        for item in bad_losses:
+                            del losses[item]
                             
-                            # save checkpoint
-                            PATH = "faster_rcnn_detrac_epoch_{}_{}.pt".format(epoch,count)
-                            torch.save({
+                        # get loss statistics    
+                        loss_vals = [losses[tag].item() for tag in losses]
+                        total_loss = sum(loss_vals)
+                        running_loss += total_loss
+                    
+                    total_loss = running_loss / (200*dataloaders["val"].batch_size)
+                    if total_loss < best_val_loss:
+                        best_val_loss = total_loss
+                        
+                        #delete old checkpoint
+                        if best_val_checkpoint:
+                            os.remove(best_val_checkpoint)
+                            
+                        # save new checkpoint
+                        best_val_checkpoint = "best_faster_rcnn_detrac_{}_{}.pt".format(epoch,count)
+                        torch.save({
                             'epoch': epoch,
                             'model_state_dict': model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'loss': running_loss
-                            }, PATH)
-    
-                torch.cuda.empty_cache()
-                
-                
-                # get epoch statistics
-                running_loss = running_loss / dataset_sizes[phase]
-                print("Epoch {} {} phase complete. Avg loss: {}".format(epoch,phase,running_loss))
-                
-                # save checkpoint
-                PATH = "faster_rcnn_detrac_epoch_{}.pt".format(epoch)
-                torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': running_loss
-                }, PATH)
+                            }, best_val_checkpoint)
+
+                        print("Saved checkpoint with new best val loss ({:.4f})".format(best_val_loss))
+                    
+            
+            # end of epoch
+            torch.cuda.empty_cache()
+            
+            # get epoch statistics
+            running_loss = running_loss / dataset_sizes[phase]
+            print("Epoch {} training complete. Avg loss: {}".format(epoch,running_loss))
+            
+            # save checkpoint
+            PATH = "faster_rcnn_detrac_epoch_{}.pt".format(epoch)
+            torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': running_loss
+            }, PATH)
                 
         return model
 
@@ -252,18 +313,16 @@ if __name__ == "__main__":
     #optimizer = optim.Adam(model.parameters(), lr=0.0001)
     optimizer = optim.SGD(model.parameters(), lr=0.001,momentum = 0.9)    
     # Decay LR by a factor of 0.5 every epoch
-    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.9)
+    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.3)
     start_epoch = 0
     num_epochs = 10
 
-#    checkpoint = "faster_rcnn_detrac_epoch_0.pt"
-#    model,optimizer,start_epoch = load_model(checkpoint,model,optimizer)
+    checkpoint_file = None #"faster_rcnn_detrac_epoch_1_12000.pt"
         
-#    # if checkpoint specified, load model and optimizer weights from checkpoint
-#    if checkpoint_file != None:
-#        model,optimizer,start_epoch = load_model(checkpoint_file, model, optimizer)
-#        #model,_,_ = load_model(checkpoint_file, model, optimizer) # optimizer restarts from scratch
-#        print("Checkpoint loaded.")
+    # if checkpoint specified, load model and optimizer weights from checkpoint
+    if checkpoint_file != None:
+        model,optimizer,start_epoch = load_model(checkpoint_file, model, optimizer)
+        print("Checkpoint loaded.")
             
     # group dataloaders
     dataloaders = {"train":trainloader, "val": testloader}
