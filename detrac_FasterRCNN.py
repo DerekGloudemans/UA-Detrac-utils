@@ -57,6 +57,7 @@ def train_model(model, optimizer, scheduler,
         Validation results are reported but don't impact model weights
         Trains RPN on even epochs, ROI heads on odd epochs
         """
+        best_loss = np.inf
         for epoch in range(start_epoch,num_epochs):
             print('Epoch {}/{}'.format(epoch+1, num_epochs))
             print('-' * 10)
@@ -92,12 +93,28 @@ def train_model(model, optimizer, scheduler,
 
 
                         if phase == 'train' :
-                            if epoch %2 == 1:
-                                losses['loss_classifier'].backward(retain_graph = True)
-                                losses['loss_box_reg'].backward(retain_graph = False)
-                            else:
-                                losses['loss_objectness'].backward(retain_graph = True)
-                                losses['loss_rpn_box_reg'].backward(retain_graph = False)
+                            # deal with nan and inf values
+                            bad_losses = []
+                            for item in losses:
+                                if torch.isnan(losses[item]) or losses[item] > 100:
+                                    bad_losses.append(item)
+                            for item in bad_losses:
+                                del losses[item]
+                                    
+#                            if count//500 % 2 == 1:#epoch %2 == 1: # switch every 500 batches
+#                                losses['loss_classifier'].backward(retain_graph = True)
+#                                losses['loss_box_reg'].backward(retain_graph = False)
+#                            else:
+#                                losses['loss_objectness'].backward(retain_graph = True)
+#                                losses['loss_rpn_box_reg'].backward(retain_graph = False)
+#                            optimizer.step()
+                            
+                        if phase == 'train' :
+                            for i,item in enumerate(losses):
+                                if i < len(losses)-1:
+                                    losses[item].backward(retain_graph = True)
+                                else:
+                                    losses[item].backward(retain_graph = False)
                             optimizer.step()
                             
                    
@@ -107,10 +124,22 @@ def train_model(model, optimizer, scheduler,
         
                     # verbose update
                     count += 1
-                    if count % 50 == 0:
+                    if count % 1 == 0:
                         print("{:.4f} - Minibatch {} of {}".format(total_loss,count,total_num_minibatches))
-                        print("      cls:{:.4f} reg:{:.4f}  obj:{:.4f} rpn:{:.4f}"\
-                              .format(loss_vals[0],loss_vals[1],loss_vals[2],loss_vals[3]))
+                        #print("      cls:{:.4f} reg:{:.4f}  obj:{:.4f} rpn:{:.4f}"\
+                        #      .format(loss_vals[0],loss_vals[1],loss_vals[2],loss_vals[3]))
+                        if count % 500 == 0 and running_loss/(count*dataloaders[phase].batch_size) < best_loss:
+                            print("New lowest loss, checkpoint saved.")
+                            
+                            # save checkpoint
+                            PATH = "faster_rcnn_detrac_epoch_{}_{}.pt".format(epoch,count)
+                            torch.save({
+                            'epoch': epoch,
+                            'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'loss': running_loss
+                            }, PATH)
+    
                 torch.cuda.empty_cache()
                 
                 
@@ -119,7 +148,7 @@ def train_model(model, optimizer, scheduler,
                 print("Epoch {} {} phase complete. Avg loss: {}".format(epoch,phase,running_loss))
                 
                 # save checkpoint
-                PATH = "faster_rcnn_detract_epoch_{}.pt".format(epoch)
+                PATH = "faster_rcnn_detrac_epoch_{}.pt".format(epoch)
                 torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -129,7 +158,17 @@ def train_model(model, optimizer, scheduler,
                 
         return model
 
+def load_model(checkpoint_file,model,optimizer):
+    """
+    Reloads a checkpoint, loading the model and optimizer state_dicts and 
+    setting the start epoch
+    """
+    checkpoint = torch.load(checkpoint_file)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
 
+    return model,optimizer,epoch
 
 
 if __name__ == "__main__":
@@ -189,7 +228,7 @@ if __name__ == "__main__":
         test_dataset = Track_Dataset(image_dir,label_dir,mode = "testing")
         
         # create training params
-        params = {'batch_size': 2,
+        params = {'batch_size': 4,
                   'shuffle': True,
                   'num_workers': 0,
                   'collate_fn':collate_wrapper}
@@ -208,14 +247,18 @@ if __name__ == "__main__":
     
     #%%
     model = model.to(device)
+
     # all parameters are being optimized, not just fc layer
-    #optimizer = optim.Adam(model.parameters(), lr=0.01)
-    optimizer = optim.SGD(model.parameters(), lr=0.0001,momentum = 0.9)    
+    #optimizer = optim.Adam(model.parameters(), lr=0.0001)
+    optimizer = optim.SGD(model.parameters(), lr=0.001,momentum = 0.9)    
     # Decay LR by a factor of 0.5 every epoch
     exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.9)
     start_epoch = 0
     num_epochs = 10
 
+#    checkpoint = "faster_rcnn_detrac_epoch_0.pt"
+#    model,optimizer,start_epoch = load_model(checkpoint,model,optimizer)
+        
 #    # if checkpoint specified, load model and optimizer weights from checkpoint
 #    if checkpoint_file != None:
 #        model,optimizer,start_epoch = load_model(checkpoint_file, model, optimizer)
