@@ -73,10 +73,6 @@ def train_model(model, optimizer, scheduler,
             print('-' * 10)
     
             running_loss = 0
-            # Each epoch has a training and validation phase
-            if epoch > 0:
-                scheduler.step()
-                
             # Set model to training mode
             model.train()  
 
@@ -86,6 +82,11 @@ def train_model(model, optimizer, scheduler,
             total_num_minibatches = dataset_sizes["train"] / dataloaders["train"].batch_size
             
             for inputs, labels in dataloaders["train"]:
+                
+                # Decrease learning rate every 2000 minibatches
+                if count % 2000 == 1999:
+                    scheduler.step()
+                
                 inputs = inputs.to(device)
                 device_labels = []
                 for label in labels:
@@ -111,7 +112,7 @@ def train_model(model, optimizer, scheduler,
                         
                     # get loss statistics    
                     loss_vals = [losses[tag].item() for tag in losses]
-                    total_loss = sum(loss_vals)
+                    total_loss = sum(loss_vals) #+ (4-len(loss_vals)) # use a loss value of 1 if val was removed
                     running_loss += total_loss
                     loss_strings = [item + ":" + str(losses[item].item()) for item in losses]
                     
@@ -147,7 +148,7 @@ def train_model(model, optimizer, scheduler,
                 count += 1
                 if count % 50 == 0:
                     print("{:.4f} - Minibatch {} of {}".format(total_loss,count,total_num_minibatches))
-                    print(loss_strings)                    
+                    #print(loss_strings)                    
 
                 # perform validation check
                 if count % alternation_step_size == 0:
@@ -178,12 +179,14 @@ def train_model(model, optimizer, scheduler,
                             
                         # get loss statistics    
                         loss_vals = [losses[tag].item() for tag in losses]
-                        total_loss = sum(loss_vals)
+                        total_loss = sum(loss_vals) #+ (4-len(loss_vals)) # use a loss value of 1 if val was removed
                         running_loss += total_loss
                     
                     total_loss = running_loss / (200*dataloaders["val"].batch_size)
                     if total_loss < best_val_loss:
                         best_val_loss = total_loss
+                        
+                        print("Validation loss: {}".format(total_loss))
                         
                         #delete old checkpoint
                         if best_val_checkpoint:
@@ -205,7 +208,7 @@ def train_model(model, optimizer, scheduler,
             torch.cuda.empty_cache()
             
             # get epoch statistics
-            running_loss = running_loss / dataset_sizes[phase]
+            running_loss = running_loss / dataset_sizes["train"]
             print("Epoch {} training complete. Avg loss: {}".format(epoch,running_loss))
             
             # save checkpoint
@@ -313,11 +316,11 @@ if __name__ == "__main__":
     #optimizer = optim.Adam(model.parameters(), lr=0.0001)
     optimizer = optim.SGD(model.parameters(), lr=0.001,momentum = 0.9)    
     # Decay LR by a factor of 0.5 every epoch
-    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.3)
+    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.7)
     start_epoch = 0
     num_epochs = 10
 
-    checkpoint_file = None #"faster_rcnn_detrac_epoch_1_12000.pt"
+    checkpoint_file = "faster_rcnn_detrac_epoch_1_14500.pt" #None #"best_faster_rcnn_detrac_0_1000.pt"
         
     # if checkpoint specified, load model and optimizer weights from checkpoint
     if checkpoint_file != None:
